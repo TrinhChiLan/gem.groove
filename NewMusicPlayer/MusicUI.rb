@@ -1,23 +1,64 @@
 require 'gosu'
 require_relative 'FileReader.rb'
+require_relative 'FileWriter.rb'
+
+class TextBox < Gosu::TextInput
+  def initialize()
+    super
+    self.text = getDefaultPath()
+  end
+end
+
+class SVector2
+  attr_accessor :x, :y
+  def initialize(x, y)
+    @x = x 
+    @y = y
+  end
+end
+
+class Button
+  attr_accessor :name, :imageObject, :position, :size
+  def initialize(name, imageObject, position, size)
+    @name = name
+    @imageObject = imageObject
+    @position = position
+    @size = size
+  end
+end
+
+$stateButtons = {
+  '1' => [
+    Button.new('Next', Gosu::Image.new('tcl.Assets\Images\Icons\next.png'), SVector2.new(225, 115), SVector2.new(20, 20)),
+    Button.new('Previous', Gosu::Image.new('tcl.Assets\Images\Icons\previous.png'), SVector2.new(5, 115), SVector2.new(20, 20))
+  ],
+  '2' => [
+    Button.new('Next', Gosu::Image.new('tcl.Assets\Images\Icons\next.png'), SVector2.new(140, 220), SVector2.new(20, 20)),
+    Button.new('Previous', Gosu::Image.new('tcl.Assets\Images\Icons\previous.png'), SVector2.new(90, 220), SVector2.new(20, 20))
+  ]
+}
+
+def convertToMinute(num) #THIS WILL RETURN A STRING, BEWARE
+  minute = num.to_i/60
+  second = num.to_i%60
+  if second.to_s.length < 2 then second = "0#{second}" end
+  return "#{minute}:#{second}"
+end
 
 class MusicPlayer < Gosu::Window
   #
   def initialize()
     super(250, 250)
-    self.caption = 'Music Player'
-    getAudioFiles('tcl.Assets\Audios', 'Unassigned')
-    @masterHash = getHash()
+    self.caption = 'D S M P'
+    @prompt = TextBox.new()
+    self.text_input = @prompt
+    #
+    @masterHash = nil 
     #
     @albums = []
-    @masterHash.each do |key, value|
-      if key == 'Playlist' then next end
-      if value.tracks.length < 1 then next end
-      @albums << key
-    end
-    #puts @albums
+    @albumIconBaseSize = 180.0
     #
-    @currentState = 1
+    @currentState = 0
     @currentAlbumIndex = 0
     #
     @currentTrackIndex = 0
@@ -30,13 +71,21 @@ class MusicPlayer < Gosu::Window
     #
     @baseFont = Gosu::Font.new(20)
     @trackFont = Gosu::Font.new(18)
-    #
+    @timeFont = Gosu::Font.new(15)
+    #Samples
     @swipeSound = Gosu::Sample.new('tcl.Assets\Misc\swipe.mp3')
     @selectSound = Gosu::Sample.new('tcl.Assets\Misc\select.mp3')
+    #Initial prompt to get the path to the directory
+    @enterText = "Enter Directory's path:"
+    @enterTextWidth = @baseFont.text_width(@enterText)
+    #Buttons  
+    @pauseButton = Gosu::Image.new('tcl.Assets\Images\Icons\pause.png')
+    @continueButton = Gosu::Image.new('tcl.Assets\Images\Icons\play-button-arrowhead.png')
   end
   def needs_cursor?; true; end
   #functions
   def currentAlbum() #get current album, duh
+    #puts @albums[@currentAlbumIndex]
     return @albums[@currentAlbumIndex]
   end
   def currentAlbumTracks() #return the array of Track objects of the current album.
@@ -45,10 +94,13 @@ class MusicPlayer < Gosu::Window
   def pauseAudio(bool) #la pause
     if !@currentTrack then return end
     @paused = bool
-    bool ? @currentTrack.stop : @currentTrack.play
+    bool ? @currentTrack.pause : @currentTrack.play
   end
   def playIndexedTrack()
     #If there is a currently playing track, stops it
+    @paused = false
+    @elapsedTime = 0
+    @lastTick = Time.now
     if @currentTrack then @currentTrack.stop end
     #
     tracks = currentAlbumTracks
@@ -101,6 +153,23 @@ class MusicPlayer < Gosu::Window
       end
     end
   end
+  def readPath()
+    path = @prompt.text.chomp
+    puts path
+    if getAudioFiles(path, 'Unassigned') then
+      @currentState = 1
+      @masterHash = getHash()
+      @masterHash.each do |key, value|
+        if key == 'Playlist' then next end
+        if value.tracks.length < 1 then next end
+        @albums << key
+      end
+      self.text_input = nil
+      updateDefaultPath(path)
+    else
+      puts 'Directory not found!'
+    end
+  end
   def selectAlbum()
     @selectSound.play
     @currentState = 2
@@ -122,13 +191,66 @@ class MusicPlayer < Gosu::Window
   end
   #Mouse interactions
   def mouseHover()
-    if @currentState = 2 then
+    case @currentState
+    when 2 
       len = currentAlbumTracks.length
       for i in (5*@currentTrackPage)..[4 + 5*@currentTrackPage, len - 1].min do
         if (mouse_x > @trackButtons[i][0] and mouse_x < @trackButtons[i][0] + @trackButtons[i][2]) and (mouse_y > @trackButtons[i][1] and mouse_y < @trackButtons[i][1] + 18) then
           if i != @currentTrackIndex then @trackButtons[i][3] = true end
         else
           @trackButtons[i][3] = false
+        end
+      end
+    when 1
+    end
+  end
+  def getStateButton()
+    if !$stateButtons[@currentState.to_s] then return end
+    for i in 0..$stateButtons[@currentState.to_s].length - 1 do
+      button = $stateButtons[@currentState.to_s][i]
+      if (mouse_x > button.position.x and mouse_x < button.position.x + button.size.x) and (mouse_y > button.position.y and mouse_y < button.position.y + button.size.y) then
+        return button
+      end
+    end
+    return nil
+  end
+  def mouseClick()
+    foundStateButton = getStateButton
+    if @currentState == 1 then
+      #for the modulized buttons.
+      if foundStateButton then 
+        case foundStateButton.name
+        when "Next"
+          shift(1)
+        when 'Previous'
+          shift(-1)
+        end
+      end
+      #others
+      minX = 125 - @albumIconBaseSize/2
+      maxX = minX + @albumIconBaseSize
+      if (mouse_x > minX and mouse_x < maxX) and (mouse_y > 15 and mouse_y < 15 + @albumIconBaseSize) then
+        selectAlbum()
+      end
+    elsif @currentState == 2 then
+      if (mouse_x > 115 and mouse_x < 135) and (mouse_y > 220 and mouse_y < 240) then
+        pauseAudio(!@paused)
+      end
+      if foundStateButton then 
+        case foundStateButton.name
+        when "Next"
+          shiftTrack(1)
+        when 'Previous'
+          shiftTrack(-1)
+        end
+      end
+      len = currentAlbumTracks.length
+      for i in (5*@currentTrackPage)..[4 + 5*@currentTrackPage, len - 1].min do
+        if @trackButtons[i][3] == true then
+          puts "Pointing to #{i}"
+          puts "From #{@currentTrackIndex}"
+          puts i - @currentTrackIndex
+          shiftTrack(i - @currentTrackIndex)
         end
       end
     end
@@ -138,18 +260,35 @@ class MusicPlayer < Gosu::Window
     if @currentTrack then
       if !@currentTrack.playing? and !@paused then
         shiftTrack(1)
+      elsif @currentTrack.playing? and !@paused then
+        currentTime = Time.now
+        if currentTime - @lastTick >= 1 then
+          @elapsedTime += 1
+          @lastTick = currentTime
+          # puts @elapsedTime
+          # puts (@elapsedTime/currentAlbumTracks[@currentTrackIndex].length)*250
+        end
       end
     end
   end
   #Draw...
   def draw()
+    mouseHover #Mouse hover
+    #$stateButtons
+    if $stateButtons[@currentState.to_s] then
+      for i in 0..$stateButtons[@currentState.to_s].length - 1 do
+        button = $stateButtons[@currentState.to_s][i]
+        button.imageObject.draw(button.position.x, button.position.y, 0, button.size.x.to_f/button.imageObject.width, button.size.y.to_f/button.imageObject.height)
+      end
+    end
+    #State specific buttons
     if @currentState == 1 then
       #icon
       iconPath = @masterHash[currentAlbum].albumicon
       icon = Gosu::Image.new(iconPath)
-      scaleX = 180.0/icon.width
-      scaleY = 180.0/icon.height
-      icon.draw(35, 15, 0, scaleX, scaleY)
+      scaleX = @albumIconBaseSize/icon.width
+      scaleY = @albumIconBaseSize/icon.height
+      icon.draw(125 - @albumIconBaseSize/2, 15, 0, scaleX, scaleY)
       #nameNtitle
       title = @masterHash[currentAlbum].title
       titleWidth = @baseFont.text_width(title)
@@ -158,7 +297,6 @@ class MusicPlayer < Gosu::Window
       nameWidth = @baseFont.text_width(name)
       @baseFont.draw_text(name, 125 - nameWidth/2, 220, 0)
     elsif @currentState == 2 then
-      mouseHover
       #Drawing tracks
       tracks = currentAlbumTracks
       page = @currentTrackPage
@@ -169,8 +307,22 @@ class MusicPlayer < Gosu::Window
       end
       #Drawing indicator
       if @currentTrackIndex >= 5*@currentTrackPage and @currentTrackIndex <= 4 + 5*@currentTrackPage then
-        Gosu.draw_rect(@trackButtons[@currentTrackIndex][0] - 5, @trackButtons[@currentTrackIndex][1] + 5, 5, 5, Gosu::Color::RED)
+        @paused ? color = Gosu::Color::BLUE : color = Gosu::Color::RED
+        Gosu.draw_rect(@trackButtons[@currentTrackIndex][0] - 5, @trackButtons[@currentTrackIndex][1] + 5, 5, 5, color)
       end
+      #Continue, pause button
+      if @paused then
+        @continueButton.draw(115, 220, 0, 20.0/@continueButton.width, 20.0/@continueButton.height)
+      else
+        @pauseButton.draw(115, 220, 0, 20.0/@pauseButton.width, 20.0/@pauseButton.height)
+      end
+      #Time elapsed
+      Gosu.draw_rect(0, 245, (@elapsedTime/currentAlbumTracks[@currentTrackIndex].length)*250 , 5, Gosu::Color::WHITE)
+      @timeFont.draw_text("#{convertToMinute(@elapsedTime)}/#{convertToMinute(currentAlbumTracks[@currentTrackIndex].length)}", 175, 225, 0)
+    elsif @currentState == 0 then #Getting the path to the folder.
+      Gosu.draw_rect(10, 110, 230, 30, Gosu::Color::GRAY)
+      @baseFont.draw_text(@enterText, 125 - @enterTextWidth/2, 75, 0, 1 ,1)
+      @baseFont.draw_text(@prompt.text, 12.5, 115, 0, 1, 1)
     end
   end
   #Button down handler
@@ -183,22 +335,24 @@ class MusicPlayer < Gosu::Window
   end
   def button_down(id)
     case id
-    when Gosu::KbRight 
+    when Gosu::MsLeft
+      mouseClick()
+    when Gosu::KB_RIGHT 
       if !pageSufficent then return end
       if @currentState == 1
         shift(1)
-      else
+      elsif @currentState == 2
         shiftTracksPage(1)
       end      
-    when Gosu::KbLeft 
+    when Gosu::KB_LEFT
       if !pageSufficent then return end
       if @currentState == 1
         shift(-1)
-      else
+      elsif @currentState == 2
         shiftTracksPage(-1)
       end  
     when Gosu::KB_ESCAPE 
-      if @currentState == 1 then
+      if @currentState == 1 or @currentState == 0 then
         exit 
       elsif @currentState == 2 then
         @selectSound.play
@@ -212,7 +366,11 @@ class MusicPlayer < Gosu::Window
         @currentTrack = nil
       end
     when Gosu::KB_RETURN
-      selectAlbum()
+      if @currentState == 1 then
+        selectAlbum()
+      elsif @currentState == 0 then
+        readPath()
+      end
     when Gosu::KbDown
       if @currentState == 2 then shiftTrack(1) end
     when Gosu::KbUp

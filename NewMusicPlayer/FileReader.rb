@@ -1,8 +1,11 @@
+require 'mp3info'
+
 class Track
-  attr_accessor :name, :location
-  def initialize (name, location)
+  attr_accessor :name, :location, :length
+  def initialize (name, location, length)
     @name = name
     @location = location
+    @length = length
   end
 end
 
@@ -55,7 +58,7 @@ def possessInfo(aFile, key)
 end
 
 def getAudioFiles(directory, key)
-  return if !Dir.exist?(directory)
+  return false if !Dir.exist?(directory)
   Dir.foreach(directory) do |child|
     next if child == '.' or child == '..' 
     path = File.join(directory, child)
@@ -67,13 +70,14 @@ def getAudioFiles(directory, key)
     elsif File.basename(child) == 'info.txt' then
       possessInfo(path, File.basename(directory))
     elsif File.extname(child) =~ /\.(mp3|wav|ogg|flac)$/i then
-      #audioFiles << path
       exts = /\.(mp3|wav|ogg|flac)$/i
-      track = Track.new(File.basename(child, '.*'), path)
+      length = Mp3Info.open(path).length
+      track = Track.new(File.basename(child, '.*'), path, length)
       $masterHash[key].tracks << track
       $masterHash['All'].tracks << track
     end
   end
+  return true
 end
 
 def displayHash(hash)
@@ -90,9 +94,16 @@ def getHash()
   return $masterHash
 end
 
+def getDefaultPath()
+  defaultPath = File.open('tcl.Assets\defaultpath.txt')
+  return defaultPath.gets
+  defaultPath.close
+end
+
+
 # Replace 'audio_folder' with the actual path to your folder
 # puts 'Enter the directory name!'
 # direc = gets.chomp
-# audio_files = getAudioFiles('AudioPlayer\Assets\Audios', 'Unassigned')
+#audio_files = getAudioFiles('tcl.Assets\Audios', 'Unassigned')
 # displayHash($masterHash)
 #AudioPlayer\Assets\Audios\Combat Initiation
