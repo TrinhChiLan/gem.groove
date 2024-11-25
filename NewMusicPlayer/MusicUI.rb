@@ -49,7 +49,7 @@ class MusicPlayer < Gosu::Window
   #
   def initialize()
     super(250, 250)
-    self.caption = 'D S M P'
+    self.caption = 'gem.groove'
     @prompt = TextBox.new()
     self.text_input = @prompt
     #
