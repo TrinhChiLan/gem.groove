@@ -1,1 +1,1 @@
-C:/Users/Hello!/Music
+Enter your directory path here!
